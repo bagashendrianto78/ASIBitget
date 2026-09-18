@@ -1,3 +1,11 @@
 name = "asibitget"
-main = "src/server.js/src/server.js"
+main = "src/server.js"
 compatibility_date = "2026-09-17"
+
+[[durable_objects.bindings]]
+name = "BITGET_FEED"
+class_name = "BitgetFeedDO"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["BitgetFeedDO"]
