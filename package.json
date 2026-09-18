@@ -2,7 +2,7 @@
   "name": "asibitget",
   "version": "2.0.0",
   "description": "ASIBitget — WebSocket-based Bitget market data proxy for Cloudflare Workers",
-  "main": "src/server.js",
+  "main": "server.js",
   "scripts": {
     "deploy": "wrangler deploy",
     "dev": "wrangler dev"
