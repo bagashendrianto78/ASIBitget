@@ -4,7 +4,7 @@ const HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
-  "Content-Type": "application/json"
+  "Content-Type": "application/json; charset=UTF-8"
 };
 
 function json(data, status = 200) {
@@ -23,7 +23,13 @@ async function bitget(path, params = {}) {
     }
   }
 
-  const response = await fetch(url.toString());
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      "Accept": "application/json",
+      "User-Agent": "ASIBitget/1.0"
+    }
+  });
 
   const text = await response.text();
 
@@ -32,14 +38,63 @@ async function bitget(path, params = {}) {
   try {
     data = JSON.parse(text);
   } catch {
-    throw new Error("Bitget returned invalid JSON");
+    throw new Error(
+      `Bitget returned invalid JSON: ${text.slice(0, 500)}`
+    );
   }
 
   if (!response.ok) {
-    throw new Error(`Bitget HTTP ${response.status}`);
+    throw new Error(
+      `Bitget HTTP ${response.status}: ${text.slice(0, 500)}`
+    );
+  }
+
+  if (
+    data &&
+    data.code !== undefined &&
+    data.code !== "00000" &&
+    data.code !== 0
+  ) {
+    throw new Error(
+      `Bitget API error ${data.code}: ${data.msg || "Unknown error"}`
+    );
   }
 
   return data;
+}
+
+async function bitgetWithFallback(v3Path, v3Params, v2Path, v2Params) {
+  try {
+    return await bitget(v3Path, v3Params);
+  } catch (v3Error) {
+    try {
+      const data = await bitget(v2Path, v2Params);
+
+      return {
+        ...data,
+        _fallback: true,
+        _v3_error: v3Error.message
+      };
+    } catch (v2Error) {
+      throw new Error(
+        `V3: ${v3Error.message} | V2: ${v2Error.message}`
+      );
+    }
+  }
+}
+
+function normalizeSymbol(symbol) {
+  return (symbol || "BTCUSDT").toUpperCase().trim();
+}
+
+function normalizeLimit(value) {
+  let limit = Number(value || 100);
+
+  if (!Number.isFinite(limit)) {
+    limit = 100;
+  }
+
+  return Math.max(1, Math.min(Math.floor(limit), 100));
 }
 
 export default {
@@ -63,9 +118,9 @@ export default {
 
     try {
 
-      // ================================
-      // HOME
-      // ================================
+      // ============================================================
+      // ROOT
+      // ============================================================
 
       if (path === "/") {
         return json({
@@ -74,6 +129,7 @@ export default {
           status: "online",
           exchange: "Bitget",
           market: "USDT-FUTURES",
+          version: "1.0",
           endpoints: {
             ticker: "/api/ticker?symbol=BTCUSDT",
             tickers: "/api/tickers",
@@ -84,98 +140,111 @@ export default {
         });
       }
 
-      // ================================
+
+      // ============================================================
       // SINGLE TICKER
-      // ================================
+      // ============================================================
 
       if (path === "/api/ticker") {
+        const symbol = normalizeSymbol(
+          url.searchParams.get("symbol")
+        );
 
-        const symbol = (
-          url.searchParams.get("symbol") || "BTCUSDT"
-        ).toUpperCase();
-
-        const data = await bitget(
+        const data = await bitgetWithFallback(
+          "/api/v3/market/tickers",
+          {
+            category: "USDT-FUTURES",
+            symbol
+          },
           "/api/v2/mix/market/ticker",
           {
-            symbol,
-            productType: "USDT-FUTURES"
+            productType: "USDT-FUTURES",
+            symbol
           }
         );
 
         return json({
           success: true,
           source: "Bitget",
+          market: "USDT-FUTURES",
           symbol,
-          productType: "USDT-FUTURES",
-          data: data.data || []
+          data: data.data || [],
+          fallback: data._fallback || false
         });
       }
 
-      // ================================
+
+      // ============================================================
       // ALL TICKERS
-      // ================================
+      // ============================================================
 
       if (path === "/api/tickers") {
-
-        const data = await bitget(
+        const data = await bitgetWithFallback(
+          "/api/v3/market/tickers",
+          {
+            category: "USDT-FUTURES"
+          },
           "/api/v2/mix/market/tickers",
           {
             productType: "USDT-FUTURES"
           }
         );
 
+        const rows = Array.isArray(data.data)
+          ? data.data
+          : [];
+
         return json({
           success: true,
           source: "Bitget",
-          productType: "USDT-FUTURES",
-          count: Array.isArray(data.data)
-            ? data.data.length
-            : 0,
-          data: data.data || []
+          market: "USDT-FUTURES",
+          count: rows.length,
+          data: rows,
+          fallback: data._fallback || false
         });
       }
 
-      // ================================
-      // CANDLESTICKS
-      // ================================
+
+      // ============================================================
+      // CANDLES
+      // 5m / 1H
+      // ============================================================
 
       if (path === "/api/candles") {
-
-        const symbol = (
-          url.searchParams.get("symbol") || "BTCUSDT"
-        ).toUpperCase();
+        const symbol = normalizeSymbol(
+          url.searchParams.get("symbol")
+        );
 
         const interval = (
           url.searchParams.get("interval") || "5m"
-        );
+        ).trim();
 
         const allowed = ["5m", "1H"];
 
         if (!allowed.includes(interval)) {
           return json({
             success: false,
-            error: "interval harus 5m atau 1H"
+            error: "interval harus 5m atau 1H",
+            allowed: allowed
           }, 400);
         }
 
-        let limit = Number(
-          url.searchParams.get("limit") || "100"
+        const limit = normalizeLimit(
+          url.searchParams.get("limit")
         );
 
-        if (!Number.isFinite(limit)) {
-          limit = 100;
-        }
-
-        limit = Math.max(
-          1,
-          Math.min(Math.floor(limit), 100)
-        );
-
-        const data = await bitget(
+        const data = await bitgetWithFallback(
+          "/api/v3/market/candles",
+          {
+            category: "USDT-FUTURES",
+            symbol,
+            interval,
+            limit
+          },
           "/api/v2/mix/market/candles",
           {
-            symbol,
             productType: "USDT-FUTURES",
+            symbol,
             granularity: interval,
             limit
           }
@@ -184,47 +253,48 @@ export default {
         return json({
           success: true,
           source: "Bitget",
+          market: "USDT-FUTURES",
           symbol,
           interval,
-          productType: "USDT-FUTURES",
           limit,
-          data: data.data || []
+          data: data.data || [],
+          fallback: data._fallback || false
         });
       }
 
-      // ================================
+
+      // ============================================================
       // FUNDING RATE
-      // ================================
+      // ============================================================
 
       if (path === "/api/funding") {
-
-        const symbol = (
-          url.searchParams.get("symbol") || "BTCUSDT"
-        ).toUpperCase();
+        const symbol = normalizeSymbol(
+          url.searchParams.get("symbol")
+        );
 
         const data = await bitget(
           "/api/v2/mix/market/current-fund-rate",
           {
-            symbol,
-            productType: "USDT-FUTURES"
+            productType: "USDT-FUTURES",
+            symbol
           }
         );
 
         return json({
           success: true,
           source: "Bitget",
+          market: "USDT-FUTURES",
           symbol,
-          productType: "USDT-FUTURES",
           data: data.data || []
         });
       }
 
-      // ================================
-      // FUTURES CONTRACTS
-      // ================================
+
+      // ============================================================
+      // CONTRACTS
+      // ============================================================
 
       if (path === "/api/contracts") {
-
         const symbol = url.searchParams.get("symbol");
 
         const params = {
@@ -243,18 +313,34 @@ export default {
         return json({
           success: true,
           source: "Bitget",
-          productType: "USDT-FUTURES",
+          market: "USDT-FUTURES",
           data: data.data || []
         });
       }
 
-      // ================================
-      // NOT FOUND
-      // ================================
+
+      // ============================================================
+      // HEALTH CHECK
+      // ============================================================
+
+      if (path === "/health") {
+        return json({
+          success: true,
+          service: "ASIBitget",
+          status: "healthy",
+          timestamp: new Date().toISOString()
+        });
+      }
+
+
+      // ============================================================
+      // 404
+      // ============================================================
 
       return json({
         success: false,
-        error: "Endpoint not found"
+        error: "Endpoint not found",
+        path
       }, 404);
 
     } catch (error) {
@@ -262,7 +348,9 @@ export default {
       return json({
         success: false,
         source: "ASIBitget",
-        error: error.message
+        status: "upstream_error",
+        error: error.message,
+        timestamp: new Date().toISOString()
       }, 502);
     }
   }
