@@ -1,5 +1,5 @@
 name = "asibitget"
-main = "src/server.js"
+main = "server.js"
 compatibility_date = "2026-09-17"
 
 [[durable_objects.bindings]]
