@@ -1,13 +1,14 @@
 {
   "name": "asibitget",
-  "version": "1.0.0",
-  "description": "Public Bitget USDT Futures API for ASI One",
-  "type": "module",
+  "version": "2.0.0",
+  "description": "ASIBitget — WebSocket-based Bitget market data proxy for Cloudflare Workers",
+  "main": "src/server.js",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
   },
+  "dependencies": {},
   "devDependencies": {
-    "wrangler": "^4.134.0"
+    "wrangler": "^4.0.0"
   }
 }
