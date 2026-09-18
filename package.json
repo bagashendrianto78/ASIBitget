@@ -1,12 +1,13 @@
 {
-  "name": "asi-bitget-api",
+  "name": "asibitget",
   "version": "1.0.0",
-  "description": "Public Bitget market data API for ASI One",
+  "description": "Public Bitget USDT Futures API for ASI One",
   "type": "module",
   "scripts": {
-    "start": "node src/server.js"
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
   },
-  "dependencies": {
-    "express": "^5.1.0"
+  "devDependencies": {
+    "wrangler": "^4.134.0"
   }
 }
